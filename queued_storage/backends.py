@@ -108,12 +108,19 @@ class QueuedStorage(object):
         :type name: str
         :rtype: :class:`~django:django.core.files.storage.Storage`
         """
-        cache_result = cache.get(self.get_cache_key(name))
+        cache_key = self.get_cache_key(name)
+        cache_result = cache.get(cache_key)
         if cache_result:
             return self.remote
-        elif cache_result is None and self.remote.exists(name):
-            cache.set(self.get_cache_key(name), True)
-            return self.remote
+        elif cache_result is None:
+            if self.remote.exists(name):
+                cache.set(cache_key, True, 2592000)
+                return self.remote
+            else:
+                cache.set(cache_key, False, 300)
+                if not self.delayed and self.local.exists(name):
+                    self.result = self.transfer(name, cache_key=cache_key)
+                return self.local
         else:
             return self.local
 
@@ -176,7 +183,7 @@ class QueuedStorage(object):
         :rtype: str
         """
         cache_key = self.get_cache_key(name)
-        cache.set(cache_key, False)
+        cache.set(cache_key, False, 300)
         name = self.local.save(name, content)
 
         # Pass on the cache key to prevent duplicate cache key creation,
